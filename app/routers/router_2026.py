@@ -760,7 +760,7 @@ async def visit(request: Request):
         request=request,
         name="2026_visit.html",
         active_page="visit",
-        page_css="about.css",
+        page_css="visit.css",
         page_title="PyCon Togo 2026 — Visit Togo",
     )
 
