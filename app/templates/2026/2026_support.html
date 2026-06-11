@@ -13,7 +13,13 @@
           src="{{ url_for('static', path='2026/images/support_qr.png') }}"
           alt="QR code — Soutenir PyCon Togo"
           class="support-qr-img"
+          usemap="#support-map"
         />
+        <map name="support-map">
+          <area shape="rect" coords="44,611,376,770"
+                href="/donate"
+                alt="Soutenir PyCon Togo" />
+        </map>
       </div>
 
       <p class="support-qr-hint reveal reveal-d1"
