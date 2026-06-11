@@ -68,3 +68,4 @@ QRCODE/
 *.sql
 .gstack/
 pycontg25/
+tools/*
