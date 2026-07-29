@@ -33,6 +33,8 @@ PartnerType = Literal[
     "sponsorship",
     "python_community_partner",
     "community_partner",
+    "institutional_support",
+    "venue_support",
     "other",
 ]
 
@@ -106,7 +108,7 @@ class TicketConsentPayload(BaseModel):
 class TicketPayload(BaseModel):
     id: str
     name: str
-    unitPrice: int = Field(gt=0)
+    unitPrice: float = Field(gte=0.0)
     currency: str
     isStudent: bool = False
 
@@ -114,7 +116,7 @@ class TicketPayload(BaseModel):
 class TicketSubmissionPayload(BaseModel):
     ticket: TicketPayload
     quantity: int = Field(gt=0)
-    total: int = Field(gt=0)
+    total: float = Field(gte=0.0)
     buyer: TicketBuyerPayload
     consent: TicketConsentPayload
     coupon: str | None = None
@@ -258,9 +260,11 @@ def _window_status(now: datetime, start: datetime | None, end: datetime | None) 
 
 def _guess_ticket_limit(ticket_id: str, ticket_name: str) -> int:
     label = f"{ticket_id} {ticket_name}".lower()
-    if "student" in label or "vip" in label:
-        return 2
-    return 4
+    if "student" in label:
+        return 1
+    if "vip" in label:
+        return 1
+    return 1
 
 
 def _ticket_order_priority(ticket_id: str, ticket_name: str, description: str) -> int:
@@ -271,7 +275,7 @@ def _ticket_order_priority(ticket_id: str, ticket_name: str, description: str) -
         return 1
     if "premium" in label or "vip" in label:
         return 2
-    if "dina" in label:
+    if "dinner" in label:
         return 3
     return 4
 
@@ -344,9 +348,14 @@ def _normalize_ticket_catalog(rows: list[dict], event: dict) -> list[dict]:
             "id": ticket_id,
             "name": {"en": ticket_name, "fr": ticket_name},
             "description": {"en": description, "fr": description},
+            "advantages": [
+                advantage.strip()
+                for advantage in (row.get("advantages") or [])
+                if isinstance(advantage, str) and advantage.strip()
+            ],
             "earlyBirdPrice": early_price,
             "regularPrice": regular_price,
-            "earlyBirdEndDate": event.get("early_bird_close_at_en") or event.get("early_bird_close_at_fr") or None,
+            "earlyBirdEndDate": event.get("early_bird_close_at_iso") or event.get("early_bird_close_at_en") or event.get("early_bird_close_at_fr") or None,
             "quantityAvailable": quantity_available,
             "maxPerUser": max_per_user,
             "isStudent": is_student_ticket,
@@ -386,6 +395,30 @@ async def _fetch_tickets() -> list[dict]:
         return []
 
     return []
+
+
+async def _fetch_team_members() -> list[dict]:
+    event_code = getattr(settings, "python_togo_event_code", None)
+    url = _build_api_url(f"/teams/{event_code}")
+    if not event_code:
+        return []
+
+    headers = {"Authorization": f"Bearer {settings.python_togo_api_key}"}
+
+    try:
+        async with httpx.AsyncClient(timeout=settings.python_togo_api_timeout_seconds) as client:
+            response = await client.get(url, headers=headers)
+        if response.status_code < 400:
+            payload = response.json()
+            if isinstance(payload, dict):
+                if isinstance(payload.get("data"), list):
+                    return [row for row in payload["data"] if isinstance(row, dict)]
+                if isinstance(payload.get("items"), list):
+                    return [row for row in payload["items"] if isinstance(row, dict)]
+            elif isinstance(payload, list):
+                return [row for row in payload if isinstance(row, dict)]
+    except Exception:
+        return []
 
 
 def _format_datetime(value: datetime | None, lang: str) -> str:
@@ -575,12 +608,16 @@ async def _build_event_context() -> dict:
     early_bird_open_at_fr = _format_datetime(early_bird_open_at, "fr")
     early_bird_close_at_en = _format_datetime(early_bird_close_at, "en")
     early_bird_close_at_fr = _format_datetime(early_bird_close_at, "fr")
+    early_bird_open_at_iso = early_bird_open_at.isoformat() if early_bird_open_at else None
+    early_bird_close_at_iso = early_bird_close_at.isoformat(
+    ) if early_bird_close_at else None
     ticket_sales_open_at_en = _format_datetime(ticket_sales_open_at, "en")
     ticket_sales_open_at_fr = _format_datetime(ticket_sales_open_at, "fr")
     ticket_sales_close_at_en = _format_datetime(ticket_sales_close_at, "en")
     ticket_sales_close_at_fr = _format_datetime(ticket_sales_close_at, "fr")
 
     return {
+        "event_id": str(event.get("id") or event.get("event_id") or "").strip(),
         "event_name": name,
         "event_location": location_value,
         "event_date_range_en": date_range_en,
@@ -601,8 +638,10 @@ async def _build_event_context() -> dict:
         "early_bird_status": early_bird_status,
         "early_bird_open_at_en": early_bird_open_at_en,
         "early_bird_open_at_fr": early_bird_open_at_fr,
+        "early_bird_open_at_iso": early_bird_open_at_iso,
         "early_bird_close_at_en": early_bird_close_at_en,
         "early_bird_close_at_fr": early_bird_close_at_fr,
+        "early_bird_close_at_iso": early_bird_close_at_iso,
         "ticket_sales_status": ticket_sales_status,
         "ticket_sales_open_at_en": ticket_sales_open_at_en,
         "ticket_sales_open_at_fr": ticket_sales_open_at_fr,
@@ -643,6 +682,8 @@ async def _render_page_with_event(
 def _group_confirmed_partners(rows: list[dict]) -> dict:
     grouped = {
         "sponsors": [],
+        "institutional_support": [],
+        "venue_support": [],
         "partnership_partners": [],
         "community_partners": [],
         "python_community_partners": [],
@@ -674,6 +715,10 @@ def _group_confirmed_partners(rows: list[dict]) -> dict:
             grouped["python_community_partners"].append(item)
         elif partner_type in {"media_partner", "media-partner", "media"}:
             grouped["media_partners"].append(item)
+        elif partner_type in {"institutional_support", "institutional-support", "institutional"}:
+            grouped["institutional_support"].append(item)
+        elif partner_type in {"venue_support", "venue-support", "venue"}:
+            grouped["venue_support"].append(item)
         else:
             grouped["other_partners"].append(item)
 
@@ -841,6 +886,8 @@ async def _fetch_partner_sections() -> dict:
     event_code = getattr(settings, "python_togo_event_code", None)
     grouped = {
         "sponsors": [],
+        "institutional_support": [],
+        "venue_support": [],
         "partnership_partners": [],
         "community_partners": [],
         "python_community_partners": [],
@@ -967,33 +1014,59 @@ async def _fetch_all_speakers() -> list[dict]:
     return []
 
 
-async def _submit_ticket_purchase_to_api(submission: TicketSubmissionPayload, request):
+async def _submit_ticket_purchase_to_api(submission: TicketSubmissionPayload, request, discount_code: str | None = None):
     event_code = getattr(settings, "python_togo_event_code", None)
     submission_data = submission.model_dump(mode="json")
     submission_data.update({
         "success_page_url": str(request.url_for("ticket_success")),
         "cancel_page_url": str(request.url_for("ticket_cancel")),
     })
-    url = _build_api_url(f"/helper/ticket/submit/{event_code}")
+    url = _build_api_url(f"/register/{event_code}")
+    if discount_code:
+        url += f"?discount_code={discount_code.strip().replace(' ', '-').upper()}"
     headers = {
         "Authorization": f"Bearer {settings.python_togo_api_key}",
         "Content-Type": "application/json",
     }
-    print("Submitting ticket purchase to API:", submission_data)  # Debug log
     try:
         async with httpx.AsyncClient(timeout=settings.python_togo_api_timeout_seconds) as client:
             response = await client.post(url, headers=headers, json=submission_data)
         return response
     except Exception as e:
-        print("Error submitting ticket purchase to API:", str(e))  # Debug log
-        import traceback
-        traceback.print_exc()  # Print stack trace for debugging
         if isinstance(e, HTTPException):
             raise e
         raise HTTPException(
             status_code=500,
             detail="An error occurred while submitting the ticket purchase.",
         )
+
+
+async def _fetch_voucher_from_api(code: str) -> dict | None:
+    if not code:
+        return None
+
+    headers = {"Authorization": f"Bearer {settings.python_togo_api_key}"}
+    code = code.strip().replace(' ', '-').upper()
+    url = _build_api_url(f"/vouchers/?couponCode={code}")
+
+    try:
+        async with httpx.AsyncClient(timeout=settings.python_togo_api_timeout_seconds) as client:
+            response = await client.get(url, headers=headers)
+        if response.status_code >= 400:
+            return None
+        payload = response.json()
+        if isinstance(payload, dict):
+            if isinstance(payload.get("data"), dict):
+                return payload["data"]
+            if isinstance(payload.get("item"), dict):
+                return payload["item"]
+            if isinstance(payload.get("voucher"), dict):
+                return payload["voucher"]
+            return payload
+    except Exception:
+        return None
+
+    return None
 
 
 def _extract_payment_url(data: object, headers: dict[str, str] | None = None) -> str | None:
@@ -1029,7 +1102,7 @@ async def home(request: Request):
         name="index.html",
         active_page="home",
         page_css="home.css",
-        page_title="PyCon Togo 2026 — Home",
+        page_title="PyCon Togo 2026 - Home",
         extra_context={"speakers": speakers},
     )
 
@@ -1042,7 +1115,7 @@ async def call_for_speakers_form(request: Request):
             name="2026_call_for_speakers_coming_soon.html",
             active_page="call-for-speakers",
             page_css="coming-soon.css",
-            page_title="PyCon Togo 2026 — Call for Speakers",
+            page_title="PyCon Togo 2026 - Call for Speakers",
             extra_context=event_context,
         )
 
@@ -1053,7 +1126,7 @@ async def call_for_speakers_form(request: Request):
         name="2026_call_for_speakers.html",
         active_page="call-for-speakers",
         page_css="call-for-speakers.css",
-        page_title="PyCon Togo 2026 — Call for Speakers",
+        page_title="PyCon Togo 2026 - Call for Speakers",
         extra_context={
             **event_context,
             "topics": topics,
@@ -1111,7 +1184,7 @@ async def tickets(request: Request, payment_status: str | None = None, submissio
         name="2026_tickets_coming_soon.html",
         active_page="tickets",
         page_css="tickets.css",
-        page_title="PyCon Togo 2026 — Tickets",
+        page_title="PyCon Togo 2026 - Tickets",
         extra_context={
             **event_context,
             "ticket_catalog": ticket_catalog,
@@ -1119,6 +1192,14 @@ async def tickets(request: Request, payment_status: str | None = None, submissio
             "submission_id": submission_id,
         },
     )
+
+
+@router.get("/tickets/voucher")
+async def tickets_voucher(request: Request, code: str):
+    voucher = await _fetch_voucher_from_api(code.strip())
+    if not voucher:
+        raise HTTPException(status_code=404, detail="Voucher not found.")
+    return JSONResponse(content=voucher)
 
 
 @router.get("/tickets/success")
@@ -1132,7 +1213,7 @@ async def ticket_success(request: Request, token: str):
         name="2026_ticket_success.html",
         active_page="tickets",
         page_css="ticket-status.css",
-        page_title="PyCon Togo 2026 — Payment confirmed",
+        page_title="PyCon Togo 2026 - Payment confirmed",
     )
 
 
@@ -1147,7 +1228,7 @@ async def ticket_cancel(request: Request, token: str):
         name="2026_ticket_cancel.html",
         active_page="tickets",
         page_css="ticket-status.css",
-        page_title="PyCon Togo 2026 — Payment not completed",
+        page_title="PyCon Togo 2026 - Payment not completed",
     )
 
 
@@ -1176,7 +1257,7 @@ async def submit_ticket_purchase(request: Request, payload: TicketSubmissionPayl
                 detail="Student proof must be a PDF or image file.",
             )
 
-    response = await _submit_ticket_purchase_to_api(payload, request)
+    response = await _submit_ticket_purchase_to_api(payload, request, submission.get("coupon"))
     if response.status_code >= 400:
         message = "Ticket submission failed"
         try:
@@ -1230,7 +1311,7 @@ async def contact(request: Request):
         name="2026_contact.html",
         active_page="contact",
         page_css="contact.css",
-        page_title="PyCon Togo 2026 — Contact",
+        page_title="PyCon Togo 2026 - Contact",
     )
 
 
@@ -1241,18 +1322,20 @@ async def about(request: Request):
         name="2026_about.html",
         active_page="about",
         page_css="about.css",
-        page_title="PyCon Togo 2026 — About",
+        page_title="PyCon Togo 2026 - About",
     )
 
 
 @router.get("/team")
 async def team(request: Request):
+    team_members = await _fetch_team_members()
     return await _render_page_with_event(
         request=request,
         name="2026_teams.html",
         active_page="team",
         page_css="team.css",
-        page_title="PyCon Togo 2026 — Team",
+        page_title="PyCon Togo 2026 - Team",
+        extra_context={"team_members": team_members}
     )
 
 
@@ -1268,7 +1351,7 @@ async def visit(request: Request):
         name="2026_visit.html",
         active_page="visit",
         page_css="visit.css",
-        page_title="PyCon Togo 2026 — Visit Togo",
+        page_title="PyCon Togo 2026 - Visit Togo",
     )
 
 
@@ -1279,7 +1362,7 @@ async def coc(request: Request):
         name="2026_coc.html",
         active_page="about",
         page_css="about.css",
-        page_title="PyCon Togo 2026 — Code of Conduct",
+        page_title="PyCon Togo 2026 - Code of Conduct",
     )
 
 
@@ -1295,7 +1378,7 @@ async def health_security(request: Request):
         name="2026_health_security.html",
         active_page="about",
         page_css="about.css",
-        page_title="PyCon Togo 2026 — Health & Safety Policy",
+        page_title="PyCon Togo 2026 - Health & Safety Policy",
     )
 
 
@@ -1311,7 +1394,7 @@ async def privacy_policy(request: Request):
         name="2026_privacy_policy.html",
         active_page="about",
         page_css="about.css",
-        page_title="PyCon Togo 2026 — Privacy Policy",
+        page_title="PyCon Togo 2026 - Privacy Policy",
     )
 
 
@@ -1327,7 +1410,7 @@ async def sponsors(request: Request):
         name="2026_sponsors.html",
         active_page="sponsors",
         page_css="sponsors.css",
-        page_title="PyCon Togo 2026 — Sponsors",
+        page_title="PyCon Togo 2026 - Sponsors",
     )
 
 
@@ -1340,7 +1423,7 @@ async def partners(request: Request):
         name="2026_partners.html",
         active_page="partners",
         page_css="partners.css",
-        page_title="PyCon Togo 2026 — Partners Directory",
+        page_title="PyCon Togo 2026 - Partners Directory",
         extra_context={"partner_sections": grouped},
     )
 
@@ -1603,7 +1686,7 @@ async def jobs(request: Request):
         name="2026_jobs.html",
         active_page="jobs",
         page_css="jobs.css",
-        page_title="PyCon Togo 2026 — Job Board",
+        page_title="PyCon Togo 2026 - Job Board",
         extra_context={"job_offers": job_offers},
     )
 
@@ -1615,7 +1698,7 @@ async def support(request: Request):
         name="2026_support.html",
         active_page="support",
         page_css="support.css",
-        page_title="PyCon Togo 2026 — Support",
+        page_title="PyCon Togo 2026 - Support",
     )
 
 
@@ -1626,7 +1709,7 @@ async def donate(request: Request):
         name="2026_donate.html",
         active_page="support",
         page_css="support.css",
-        page_title="PyCon Togo 2026 — Soutenir PyCon",
+        page_title="PyCon Togo 2026 - Soutenir PyCon",
     )
 
 
@@ -1642,9 +1725,9 @@ def _30days(request: Request):
 
 @router.get("/road-to-pycon")
 def _road_to_pycon(request: Request):
-    return RedirectResponse(url="https://www.youtube.com/live/RhfX4ACNQn0?si=lMrwhVpQBdwYNi0Z", status_code=302)
+    return RedirectResponse(url="https://www.youtube.com/live/tkgS0T7FhX4?si=qM0fx6cM81JFidSB", status_code=302)
 
 
 @router.get("/streamyard")
 def _streamyard(request: Request):
-    return RedirectResponse(url="https://streamyard.com/cufepuecix", status_code=302)
+    return RedirectResponse(url="https://streamyard.com/phrvxehbva", status_code=302)

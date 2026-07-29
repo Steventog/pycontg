@@ -1,5 +1,5 @@
 /* ═══════════════════════════════════════════════
-   PYCON TOGO 2026 — SCRIPT.JS
+   PyCon Togo 2026 - SCRIPT.JS
 ═══════════════════════════════════════════════ */
 
 /* ── TRANSLATIONS ── */
@@ -118,12 +118,12 @@ function applyLanguage(lang) {
   document.documentElement.lang = lang;
 
   const titleByLang = {
-    en: "PyCon Togo 2026 — The Python Conference of Togo",
-    fr: "PyCon Togo 2026 — La Conférence Python du Togo",
+    en: "PyCon Togo 2026 - The Python Conference of Togo",
+    fr: "PyCon Togo 2026 - La Conférence Python du Togo",
   };
   const descriptionByLang = {
-    en: "PyCon Togo 2026 — The national conference for the Python community in Togo. Lome, Togo.",
-    fr: "PyCon Togo 2026 — La conférence nationale de la communauté Python du Togo. Lomé, Togo.",
+    en: "PyCon Togo 2026 - The national conference for the Python community in Togo. Lome, Togo.",
+    fr: "PyCon Togo 2026 - La conférence nationale de la communauté Python du Togo. Lomé, Togo.",
   };
 
   document.title = titleByLang[lang] || titleByLang.en;
@@ -154,9 +154,11 @@ function applyLanguage(lang) {
   const frBtn = document.getElementById("lang-fr");
   const enMobileBtn = document.getElementById("lang-en-mobile");
   const frMobileBtn = document.getElementById("lang-fr-mobile");
+  const enInlineBtn = document.getElementById("lang-en-inline");
+  const frInlineBtn = document.getElementById("lang-fr-inline");
 
-  [enBtn, enMobileBtn].forEach(btn => btn && btn.classList.toggle("active", lang === "en"));
-  [frBtn, frMobileBtn].forEach(btn => btn && btn.classList.toggle("active", lang === "fr"));
+  [enBtn, enMobileBtn, enInlineBtn].forEach(btn => btn && btn.classList.toggle("active", lang === "en"));
+  [frBtn, frMobileBtn, frInlineBtn].forEach(btn => btn && btn.classList.toggle("active", lang === "fr"));
 
   // Update form labels and placeholders dynamically if contact page is loaded
   updateContactFormLabels(lang);
@@ -191,6 +193,8 @@ function updateContactFormLabels(lang) {
       form_email_placeholder: "kofi@example.com",
       form_org: "Organization (optional)",
       form_org_placeholder: "Your company or university",
+
+
       form_subject: "Subject",
       form_message: "Message",
       form_message_placeholder: "Tell us how we can help you...",
@@ -444,58 +448,7 @@ function handleNewsletter(e) {
 
 /* ── TICKETS PAGE ── */
 const defaultTicketCatalog = [
-  {
-    id: "early-standard",
-    name: { en: "Early Bird Standard", fr: "Standard Early Bird" },
-    description: {
-      en: "Full conference access for individual attendees.",
-      fr: "Acces complet a la conference pour les participants individuels.",
-    },
-    earlyBirdPrice: 3000,
-    regularPrice: 3500,
-    earlyBirdEndDate: "2026-06-30T23:59:59+00:00",
-    quantityAvailable: 220,
-    maxPerUser: 4,
-  },
-  {
-    id: "early-student",
-    name: { en: "Early Bird Student", fr: "Etudiant Early Bird" },
-    description: {
-      en: "Discounted ticket for students with a valid ID.",
-      fr: "Tarif reduit pour les etudiants avec carte valide.",
-    },
-    earlyBirdPrice: 2000,
-    regularPrice: 2500,
-    earlyBirdEndDate: "2026-06-30T23:59:59+00:00",
-    quantityAvailable: 160,
-    maxPerUser: 2,
-  },
-  {
-    id: "regular-standard",
-    name: { en: "Regular Standard", fr: "Standard" },
-    description: {
-      en: "Standard access once Early Bird ends.",
-      fr: "Acces standard apres la fin de l'Early Bird.",
-    },
-    earlyBirdPrice: null,
-    regularPrice: 3500,
-    earlyBirdEndDate: null,
-    quantityAvailable: 300,
-    maxPerUser: 4,
-  },
-  {
-    id: "vip",
-    name: { en: "VIP Ticket", fr: "Ticket VIP" },
-    description: {
-      en: "Priority seating, VIP lounge access, and premium kit.",
-      fr: "Places prioritaires, lounge VIP et kit premium.",
-    },
-    earlyBirdPrice: null,
-    regularPrice: 10000,
-    earlyBirdEndDate: null,
-    quantityAvailable: 40,
-    maxPerUser: 2,
-  },
+
 ];
 
 function ticketOrderPriority(ticket) {
@@ -525,7 +478,7 @@ function readTicketCatalogFromBackend() {
   }
 
   const payload = document.getElementById("ticket-catalog-data");
-  if (!payload) return defaultTicketCatalog;
+  // if (!payload) return defaultTicketCatalog;
 
   const normalizeCatalog = (value) => {
     if (Array.isArray(value)) {
@@ -555,17 +508,243 @@ const ticketCatalog = readTicketCatalogFromBackend();
 const ticketState = {
   selectedTicketId: null,
   quantities: {},
+  activeStep: "selection",
 };
+
+const voucherState = {
+  code: "",
+  voucher: null,
+  loading: false,
+  messageType: "",
+  message: "",
+};
+
+function getCurrentEventId() {
+  return String(document.getElementById("page-tickets")?.dataset.eventId || "").trim();
+}
+
+function getCouponInput() {
+  return document.getElementById("coupon");
+}
+
+function getCouponFeedback() {
+  return document.querySelector(".coupon-help");
+}
+
+function normalizeIdList(value) {
+  if (!Array.isArray(value)) return [];
+  return value.map(item => String(item)).filter(item => item.trim());
+}
+
+function getVoucherPrice(ticket) {
+  const basePrice = getTicketBasePrice(ticket);
+  const voucher = voucherState.voucher;
+  if (!voucher || !ticket) {
+    return { basePrice, discount: 0, finalPrice: basePrice, label: "" };
+  }
+
+  const ticketId = String(ticket.id);
+  const allowedTicketIds = normalizeIdList(voucher.applicable_ticket_ids);
+  if (allowedTicketIds.length && !allowedTicketIds.some(id => String(id) === ticketId)) {
+    return { basePrice, discount: 0, finalPrice: basePrice, label: "" };
+  }
+
+  const percentage = Number(voucher.discount_percentage || 0);
+  const amount = Number(voucher.discount_amount || 0);
+  const discount = percentage > 0 ? Math.round(basePrice * (percentage / 100)) : Math.round(amount);
+  const safeDiscount = Math.min(Math.max(discount, 0), basePrice);
+  const finalPrice = basePrice - safeDiscount;
+  const label = percentage > 0 ? `-${percentage}%` : `-${safeDiscount.toLocaleString(currentLang === "fr" ? "fr-FR" : "en-US")} XOF`;
+
+  return { basePrice, discount: safeDiscount, finalPrice, label };
+}
+
+function validateVoucher(voucher) {
+  if (!voucher) return currentLang === "fr" ? "Code promo introuvable." : "Coupon not found.";
+  if (!voucher.is_active) return currentLang === "fr" ? "Ce code promo est inactif." : "This coupon is inactive.";
+
+  const endDate = voucher.end_date ? new Date(voucher.end_date) : null;
+  if (endDate && !Number.isNaN(endDate.getTime()) && endDate.getTime() < Date.now()) {
+    return currentLang === "fr" ? "Ce code promo a expire." : "This coupon has expired.";
+  }
+
+  const eventId = getCurrentEventId();
+  const allowedEventIds = normalizeIdList(voucher.applicable_event_ids);
+  if (allowedEventIds.length && eventId && !allowedEventIds.some(id => String(id) === String(eventId))) {
+    return currentLang === "fr" ? "Ce code promo ne correspond pas a cet evenement." : "This coupon does not match the current event.";
+  }
+
+  const hasPercentage = Number(voucher.discount_percentage || 0) > 0;
+  const hasAmount = Number(voucher.discount_amount || 0) > 0;
+  if (!hasPercentage && !hasAmount) {
+    return currentLang === "fr" ? "Ce code promo ne contient aucune reduction." : "This coupon has no discount.";
+  }
+
+  return "";
+}
+
+function renderVoucherFeedback() {
+  const feedback = getCouponFeedback();
+  if (!feedback) return;
+
+  if (!feedback.dataset.defaultText) {
+    feedback.dataset.defaultText = feedback.textContent || "";
+  }
+
+  if (voucherState.loading) {
+    feedback.textContent = currentLang === "fr" ? "Verification du code..." : "Checking coupon...";
+    return;
+  }
+
+  if (voucherState.message) {
+    feedback.textContent = voucherState.message;
+    return;
+  }
+
+  if (!voucherState.code) {
+    feedback.textContent = feedback.dataset.defaultText || feedback.textContent || "";
+    return;
+  }
+
+  feedback.textContent = currentLang === "fr"
+    ? `Code promo ${voucherState.code} applique.`
+    : `Coupon ${voucherState.code} applied.`;
+}
+
+function clearVoucherState() {
+  voucherState.code = "";
+  voucherState.voucher = null;
+  voucherState.loading = false;
+  voucherState.messageType = "";
+  voucherState.message = "";
+  const feedback = getCouponFeedback();
+  if (feedback && feedback.dataset.defaultText) {
+    feedback.textContent = feedback.dataset.defaultText;
+  }
+  renderVoucherFeedback();
+}
+
+async function fetchVoucher(code) {
+  const response = await fetch(`/tickets/voucher?code=${encodeURIComponent(code)}`, {
+    headers: {
+      Accept: "application/json",
+    },
+  });
+
+  if (!response.ok) {
+    return null;
+  }
+
+  const payload = await response.json().catch(() => null);
+  if (!payload) return null;
+  return payload.data || payload.item || payload.voucher || payload;
+}
+
+function applyVoucherFromInput() {
+  const input = getCouponInput();
+  if (!input) return;
+
+  const code = input.value.trim();
+  if (!code) {
+    clearVoucherState();
+    renderTicketList();
+    updateSummary();
+    return;
+  }
+
+  voucherState.loading = true;
+  voucherState.message = "";
+  renderVoucherFeedback();
+
+  fetchVoucher(code).then(voucher => {
+    const validationMessage = validateVoucher(voucher);
+    if (validationMessage) {
+      voucherState.code = "";
+      voucherState.voucher = null;
+      voucherState.message = validationMessage;
+      return;
+    }
+
+    voucherState.code = String(voucher.code || code);
+    voucherState.voucher = voucher;
+    voucherState.message = currentLang === "fr"
+      ? `Code promo ${voucherState.code} applique.`
+      : `Coupon ${voucherState.code} applied.`;
+  }).catch(() => {
+    voucherState.code = "";
+    voucherState.voucher = null;
+    voucherState.message = currentLang === "fr" ? "Impossible de verifier le code promo." : "Unable to verify the coupon code.";
+  }).finally(() => {
+    voucherState.loading = false;
+    renderVoucherFeedback();
+    renderTicketList();
+    updateSummary();
+  });
+}
 
 function getTicketById(id) {
   return ticketCatalog.find(ticket => ticket.id === id);
 }
 
+function getTicketBasePrice(ticket) {
+  if (isEarlyBirdActive(ticket)) return ticket.earlyBirdPrice;
+  return ticket.regularPrice;
+}
+
+function getEarlyBirdState(ticket) {
+  if (!ticket || !ticket.earlyBirdPrice) {
+    return {
+      active: false,
+      ended: false,
+      hasDeadline: false,
+      daysRemaining: 0,
+      endDate: null,
+    };
+  }
+
+  const endDate = ticket.earlyBirdEndDate ? new Date(ticket.earlyBirdEndDate) : null;
+  const hasDeadline = !!(endDate && !Number.isNaN(endDate.getTime()));
+  if (!hasDeadline) {
+    const active = typeof ticket.isEarlyBirdActive === "boolean" ? ticket.isEarlyBirdActive : false;
+    return {
+      active,
+      ended: false,
+      hasDeadline: false,
+      daysRemaining: 0,
+      endDate: null,
+    };
+  }
+
+  const now = new Date();
+  const active = now <= endDate;
+  const daysRemaining = active
+    ? Math.max(1, Math.ceil((endDate.getTime() - now.getTime()) / (1000 * 60 * 60 * 24)))
+    : 0;
+
+  return {
+    active,
+    ended: !active,
+    hasDeadline: true,
+    daysRemaining,
+    endDate,
+  };
+}
+
 function isEarlyBirdActive(ticket) {
-  if (typeof ticket.isEarlyBirdActive === "boolean") return ticket.isEarlyBirdActive;
-  if (!ticket.earlyBirdEndDate || !ticket.earlyBirdPrice) return false;
-  const endDate = new Date(ticket.earlyBirdEndDate);
-  return new Date() <= endDate;
+  return getEarlyBirdState(ticket).active;
+}
+
+function getEarlyBirdLabel(ticket) {
+  const state = getEarlyBirdState(ticket);
+  if (state.active && state.hasDeadline) {
+    return currentLang === "fr"
+      ? `Early Bird se termine dans ${state.daysRemaining} jours`
+      : `Early Bird ends in ${state.daysRemaining} day${state.daysRemaining > 1 ? "s" : ""}`;
+  }
+  if (state.ended) {
+    return currentLang === "fr" ? "Early Bird terminé" : "Early Bird ended";
+  }
+  return "";
 }
 
 function isTicketSalesOpen(ticket) {
@@ -582,8 +761,110 @@ function isStudentTicket(ticket) {
 }
 
 function getTicketPrice(ticket) {
-  if (isEarlyBirdActive(ticket)) return ticket.earlyBirdPrice;
-  return ticket.regularPrice;
+  return getVoucherPrice(ticket).finalPrice;
+}
+
+function renderTicketPreview() {
+  const container = document.getElementById("ticket-preview-grid");
+  if (!container) return;
+
+  container.innerHTML = ticketCatalog.map(ticket => {
+    const voucherPrice = getVoucherPrice(ticket);
+    const earlyBirdState = getEarlyBirdState(ticket);
+    const soldOut = maxSelectable(ticket) === 0;
+    const salesOpen = isTicketSalesOpen(ticket);
+    const statusLabel = soldOut
+      ? (currentLang === "fr" ? "Sold out" : "Sold out")
+      : earlyBirdState.active && earlyBirdState.hasDeadline
+        ? getEarlyBirdLabel(ticket)
+        : earlyBirdState.ended
+          ? getEarlyBirdLabel(ticket)
+          : (salesOpen
+            ? (currentLang === "fr" ? "Disponible" : "Available")
+            : (ticket.salesStatus === "upcoming"
+              ? (currentLang === "fr" ? "Bientot disponible" : "Coming soon")
+              : (currentLang === "fr" ? "Ferme" : "Closed")));
+
+    const title = ticket.name[currentLang] || ticket.name.en;
+    const description = ticket.description[currentLang] || ticket.description.en;
+    const earlyBirdPrice = earlyBirdState.active ? formatCfa(ticket.earlyBirdPrice) : "";
+    const standardPrice = voucherPrice.discount > 0 ? `<del>${formatCfa(voucherPrice.basePrice)}</del> <span class="price-main">${formatCfa(voucherPrice.finalPrice)}</span>` : formatCfa(ticket.regularPrice);
+    const ctaLabel = currentLang === "fr" ? "Choisir ce ticket" : "Choose this ticket";
+    const ticketTypeLabel = currentLang === "fr" ? "Catégorie" : "Category";
+    const earlyBirdLabel = currentLang === "fr" ? "Tarif Early Bird" : "Early Bird price";
+    const standardLabel = currentLang === "fr" ? "Tarif standard" : "Standard price";
+    const ifActiveLabel = earlyBirdState.active && earlyBirdState.hasDeadline
+      ? getEarlyBirdLabel(ticket)
+      : (earlyBirdState.ended ? (currentLang === "fr" ? "Early Bird terminé" : "Early Bird ended") : "");
+
+    return `
+      <article class="ticket-preview-row ${earlyBirdState.active ? "is-early-bird" : ""} ${soldOut ? "is-sold-out" : ""}">
+        <div class="ticket-preview-main">
+          <div class="ticket-preview-row-head">
+            <div>
+              <span class="ticket-preview-kicker">${ticketTypeLabel}</span>
+              <h3>${title}</h3>
+            </div>
+          </div>
+          <p class="ticket-preview-description">${description}</p>
+          <div class="ticket-preview-meta">
+            <span>${currentLang === "fr" ? `Max ${ticket.maxPerUser} par personne` : `Max ${ticket.maxPerUser} per attendee`}</span>
+            <span>${soldOut ? (currentLang === "fr" ? "Complet" : "Sold out") : `${ticket.quantityAvailable} ${currentLang === "fr" ? "places" : "spots"}`}</span>
+          </div>
+        </div>
+        <div class="ticket-preview-side">
+          <div class="ticket-preview-prices">
+            ${earlyBirdState.active ? `
+              <div class="ticket-preview-price ticket-preview-price--highlight">
+                <span>${earlyBirdLabel}</span>
+                <strong>${earlyBirdPrice}</strong>
+              </div>
+            ` : ""}
+            <div class="ticket-preview-price ${!earlyBirdState.active ? "ticket-preview-price--highlight" : ""}">
+              <span>${standardLabel}</span>
+              <strong>${standardPrice}</strong>
+            </div>
+          </div>
+          ${ifActiveLabel ? `<p class="ticket-preview-note">${ifActiveLabel}</p>` : ""}
+          <button type="button" class="btn btn-primary ticket-preview-cta" data-ticket-preview-select="${ticket.id}">${ctaLabel}</button>
+        </div>
+      </article>
+    `;
+  }).join("");
+
+  container.querySelectorAll("[data-ticket-preview-select]").forEach(button => {
+    button.addEventListener("click", () => {
+      const ticketId = button.getAttribute("data-ticket-preview-select");
+      const ticket = getTicketById(ticketId);
+      if (!ticket) return;
+      ticketState.selectedTicketId = ticketId;
+      ticketState.activeStep = "selection";
+      openTicketModal();
+      updateSummary(ticketId);
+      renderTicketList();
+    });
+  });
+}
+
+function updateEarlyBirdCountdown() {
+  const target = document.getElementById("ticket-earlybird-countdown");
+  if (!target) return;
+
+  const ticketWithDeadline = ticketCatalog.find(ticket => getEarlyBirdState(ticket).hasDeadline);
+  if (!ticketWithDeadline) {
+    target.textContent = currentLang === "fr" ? "Aucune date disponible" : "No deadline available";
+    return;
+  }
+
+  const state = getEarlyBirdState(ticketWithDeadline);
+  if (state.active && state.hasDeadline) {
+    target.textContent = currentLang === "fr"
+      ? `Se termine dans ${state.daysRemaining} jour${state.daysRemaining > 1 ? "s" : ""}`
+      : `Ends in ${state.daysRemaining} day${state.daysRemaining > 1 ? "s" : ""}`;
+    return;
+  }
+
+  target.textContent = currentLang === "fr" ? "Early Bird terminé" : "Early Bird ended";
 }
 
 function formatCfa(value) {
@@ -603,8 +884,8 @@ function ensureQuantity(ticket) {
     ticketState.quantities[ticket.id] = 0;
     return 0;
   }
-  const current = ticketState.quantities[ticket.id] || 1;
-  const next = Math.min(Math.max(current, 1), max);
+  const current = ticketState.quantities[ticket.id] ?? 0;
+  const next = Math.min(Math.max(current, 0), max);
   ticketState.quantities[ticket.id] = next;
   return next;
 }
@@ -614,18 +895,29 @@ function renderTicketList() {
   if (!container) return;
 
   container.innerHTML = ticketCatalog.map(ticket => {
+    const voucherPrice = getVoucherPrice(ticket);
     const earlyActive = isEarlyBirdActive(ticket);
+    const earlyLabel = getEarlyBirdLabel(ticket);
     const salesOpen = isTicketSalesOpen(ticket);
     const qty = ensureQuantity(ticket);
     const soldOut = maxSelectable(ticket) === 0;
     const buyDisabled = !salesOpen || soldOut;
+    const isSelected = ticketState.selectedTicketId === ticket.id;
     const badge = earlyActive
       ? `<span class="ticket-badge">${currentLang === "fr" ? "Early Bird" : "Early Bird"}</span>`
       : "";
 
-    const priceBlock = earlyActive
-      ? `<div class="ticket-price"><del>${formatCfa(ticket.regularPrice)}</del><span class="price-main">${formatCfa(ticket.earlyBirdPrice)}</span></div>`
-      : `<div class="ticket-price"><span class="price-main">${formatCfa(ticket.regularPrice)}</span></div>`;
+    const priceBlock = voucherPrice.discount > 0
+      ? `<div class="ticket-price"><del>${formatCfa(voucherPrice.basePrice)}</del><span class="price-main">${formatCfa(voucherPrice.finalPrice)}</span></div>`
+      : (earlyActive
+        ? `<div class="ticket-price"><del>${formatCfa(ticket.regularPrice)}</del><span class="price-main">${formatCfa(ticket.earlyBirdPrice)}</span></div>`
+        : `<div class="ticket-price"><span class="price-main">${formatCfa(ticket.regularPrice)}</span></div>`);
+
+    const statusBadge = soldOut
+      ? `<span class="ticket-badge ticket-badge-early">${currentLang === "fr" ? "Sold out" : "Sold out"}</span>`
+      : earlyLabel
+        ? `<span class="ticket-badge ticket-badge-early">${earlyLabel}</span>`
+        : badge;
 
     const availabilityLabel = !salesOpen
       ? (ticket.salesStatus === "upcoming"
@@ -635,24 +927,21 @@ function renderTicketList() {
         ? (currentLang === "fr" ? "Epuise" : "Sold out")
         : `${ticket.quantityAvailable} ${currentLang === "fr" ? "places" : "spots"}`;
 
-    const buyLabel = !salesOpen
-      ? (ticket.salesStatus === "upcoming"
-        ? (currentLang === "fr" ? "Bientot disponible" : "Coming soon")
-        : (currentLang === "fr" ? "Ferme" : "Closed"))
-      : soldOut
-        ? (currentLang === "fr" ? "Epuise" : "Sold out")
-        : (currentLang === "fr" ? "Acheter" : "Buy");
+    const advantages = Array.isArray(ticket.advantages) && ticket.advantages.length
+      ? `<ul class="ticket-advantages">${ticket.advantages.map(advantage => `<li>${advantage}</li>`).join("")}</ul>`
+      : "";
 
     return `
-      <article class="ticket-card ${buyDisabled ? "is-sold-out" : ""}" data-ticket-id="${ticket.id}" data-sales-status="${ticket.salesStatus || (salesOpen ? "open" : "closed")}">
+        <article class="ticket-card ${buyDisabled ? "is-sold-out" : ""} ${isSelected ? "is-selected" : ""}" tabindex="0" role="button" aria-pressed="${isSelected ? "true" : "false"}" data-ticket-card data-ticket-id="${ticket.id}" data-sales-status="${ticket.salesStatus || (salesOpen ? "open" : "closed")}">
         <div class="ticket-card-header">
           <div>
             <h3 class="ticket-card-title">${ticket.name[currentLang] || ticket.name.en}</h3>
             <p class="ticket-card-desc">${ticket.description[currentLang] || ticket.description.en}</p>
           </div>
-          ${badge}
+            ${isSelected ? `<span class="ticket-badge ticket-badge-selected">${currentLang === "fr" ? "Selectionne" : "Selected"}</span>` : statusBadge}
         </div>
         ${priceBlock}
+          ${advantages}
         <div class="ticket-meta-row">
           <span>${availabilityLabel}</span>
           <span>${currentLang === "fr" ? `Max ${ticket.maxPerUser} par personne` : `Max ${ticket.maxPerUser} per attendee`}</span>
@@ -660,72 +949,88 @@ function renderTicketList() {
         <div class="ticket-actions">
           <div class="qty-selector" role="group" aria-label="${currentLang === "fr" ? "Quantite" : "Quantity"}">
             <button type="button" aria-label="${currentLang === "fr" ? "Diminuer" : "Decrease"}" data-qty-btn="minus" data-ticket-id="${ticket.id}" ${buyDisabled ? "disabled" : ""}>-</button>
-            <input type="number" aria-label="${currentLang === "fr" ? "Quantite" : "Quantity"}" min="${buyDisabled ? 0 : 1}" max="${maxSelectable(ticket)}" value="${qty}" inputmode="numeric" data-qty-input="${ticket.id}" ${buyDisabled ? "disabled" : ""} />
+            <input type="number" aria-label="${currentLang === "fr" ? "Quantite" : "Quantity"}" min="0" max="${maxSelectable(ticket)}" value="${qty}" inputmode="numeric" data-qty-input="${ticket.id}" ${buyDisabled ? "disabled" : ""} />
             <button type="button" aria-label="${currentLang === "fr" ? "Augmenter" : "Increase"}" data-qty-btn="plus" data-ticket-id="${ticket.id}" ${buyDisabled ? "disabled" : ""}>+</button>
           </div>
-          <button type="button" class="btn ${buyDisabled ? "btn-ghost" : "btn-primary"}" data-buy-ticket="${ticket.id}" ${buyDisabled ? "disabled" : ""}>
-            ${buyLabel}
-          </button>
         </div>
       </article>
     `;
   }).join("");
 
+  container.querySelectorAll("[data-ticket-card]").forEach(card => {
+    card.addEventListener("click", (event) => {
+      if (event.target.closest("[data-qty-btn]") || event.target.closest("input")) return;
+      const ticketId = card.getAttribute("data-ticket-id");
+      if (!ticketId) return;
+      ticketState.selectedTicketId = ticketId;
+      updateSummary(ticketId);
+      renderTicketList();
+    });
+
+    card.addEventListener("keydown", (event) => {
+      if (event.key !== "Enter" && event.key !== " ") return;
+      event.preventDefault();
+      const ticketId = card.getAttribute("data-ticket-id");
+      if (!ticketId) return;
+      ticketState.selectedTicketId = ticketId;
+      updateSummary(ticketId);
+      renderTicketList();
+    });
+  });
+
   container.querySelectorAll("[data-qty-btn]").forEach(btn => {
-    btn.addEventListener("click", () => {
+    btn.addEventListener("click", (event) => {
+      event.stopPropagation();
       const ticketId = btn.getAttribute("data-ticket-id");
       const ticket = getTicketById(ticketId);
       if (!ticket) return;
       const max = maxSelectable(ticket);
       const current = ensureQuantity(ticket);
       const direction = btn.getAttribute("data-qty-btn");
-      const next = direction === "plus" ? Math.min(current + 1, max) : Math.max(current - 1, 1);
+      const next = direction === "plus" ? Math.min(current + 1, max) : Math.max(current - 1, 0);
       ticketState.quantities[ticketId] = next;
       const input = container.querySelector(`[data-qty-input='${ticketId}']`);
       if (input) input.value = next;
+      ticketState.selectedTicketId = ticketId;
       updateSummary(ticketId);
+      renderTicketList();
     });
   });
 
   container.querySelectorAll("[data-qty-input]").forEach(input => {
-    input.addEventListener("change", () => {
+    input.addEventListener("change", (event) => {
+      event.stopPropagation();
       const ticketId = input.getAttribute("data-qty-input");
       const ticket = getTicketById(ticketId);
       if (!ticket) return;
       const max = maxSelectable(ticket);
-      const value = Math.min(Math.max(parseInt(input.value || "1", 10), 1), max);
+      const value = Math.min(Math.max(parseInt(input.value || "0", 10), 0), max);
       ticketState.quantities[ticketId] = value;
       input.value = value;
-      updateSummary(ticketId);
-    });
-  });
-
-  container.querySelectorAll("[data-buy-ticket]").forEach(btn => {
-    btn.addEventListener("click", () => {
-      const ticketId = btn.getAttribute("data-buy-ticket");
-      if (!ticketId) return;
       ticketState.selectedTicketId = ticketId;
       updateSummary(ticketId);
-      openTicketModal();
+      renderTicketList();
     });
   });
 }
 
 function updateSummary(selectedId = ticketState.selectedTicketId) {
-  const summaryTicket = document.getElementById("summary-ticket");
-  const summaryQty = document.getElementById("summary-qty");
-  const summarySubtotal = document.getElementById("summary-subtotal");
-  const summaryTotal = document.getElementById("summary-total");
-  const continueBtn = document.getElementById("continue-to-payment");
+  const summaryTicket = document.getElementById("modal-summary-ticket");
+  const summaryQty = document.getElementById("modal-summary-qty");
+  const summarySubtotal = document.getElementById("modal-summary-subtotal");
+  const summaryDiscount = document.getElementById("modal-summary-discount");
+  const summaryTotal = document.getElementById("modal-summary-total");
+  const nextBtn = document.getElementById("ticket-step-next");
 
-  if (!summaryTicket || !summaryQty || !summarySubtotal || !summaryTotal || !continueBtn) return;
+  if (!summaryTicket || !summaryQty || !summarySubtotal || !summaryDiscount || !summaryTotal || !nextBtn) return;
 
   if (!selectedId) {
     summaryTicket.textContent = currentLang === "fr" ? "Choisissez un ticket" : "Select a ticket";
     summaryQty.textContent = "0";
     summarySubtotal.textContent = formatCfa(0);
+    summaryDiscount.textContent = formatCfa(0);
     summaryTotal.textContent = formatCfa(0);
-    continueBtn.disabled = true;
+    nextBtn.disabled = true;
     return;
   }
 
@@ -734,7 +1039,10 @@ function updateSummary(selectedId = ticketState.selectedTicketId) {
   const ticket = getTicketById(selectedId);
   if (!ticket) return;
   const qty = ensureQuantity(ticket);
-  const price = getTicketPrice(ticket);
+  const voucherPrice = getVoucherPrice(ticket);
+  const price = voucherPrice.finalPrice;
+  const subtotal = getTicketBasePrice(ticket) * qty;
+  const discount = voucherPrice.discount * qty;
   const total = price * qty;
   const salesOpen = isTicketSalesOpen(ticket);
 
@@ -742,21 +1050,82 @@ function updateSummary(selectedId = ticketState.selectedTicketId) {
 
   summaryTicket.textContent = ticket.name[currentLang] || ticket.name.en;
   summaryQty.textContent = qty;
-  summarySubtotal.textContent = formatCfa(total);
+  summarySubtotal.textContent = formatCfa(subtotal);
+  summaryDiscount.textContent = voucherPrice.discount > 0 ? `-${formatCfa(discount)}` : formatCfa(0);
   summaryTotal.textContent = formatCfa(total);
-  continueBtn.disabled = !salesOpen || maxSelectable(ticket) === 0;
+  nextBtn.disabled = !salesOpen || maxSelectable(ticket) === 0 || qty === 0;
 
-  updateModalSummary(ticket, qty, total);
+  updateModalSummary(ticket, qty, subtotal, discount, total);
 }
 
-function updateModalSummary(ticket, qty, total) {
+function updateModalSummary(ticket, qty, subtotal, discount, total) {
   const modalTicket = document.getElementById("modal-summary-ticket");
   const modalQty = document.getElementById("modal-summary-qty");
+  const modalSubtotal = document.getElementById("modal-summary-subtotal");
+  const modalDiscount = document.getElementById("modal-summary-discount");
   const modalTotal = document.getElementById("modal-summary-total");
-  if (!modalTicket || !modalQty || !modalTotal) return;
+  const modalTotalCompact = document.getElementById("modal-summary-total-compact");
+  if (!modalTicket || !modalQty || !modalSubtotal || !modalDiscount || !modalTotal) return;
   modalTicket.textContent = ticket ? (ticket.name[currentLang] || ticket.name.en) : "-";
   modalQty.textContent = qty || 0;
+  modalSubtotal.textContent = formatCfa(subtotal || 0);
+  modalDiscount.textContent = discount > 0 ? `-${formatCfa(discount)}` : formatCfa(0);
   modalTotal.textContent = formatCfa(total || 0);
+  if (modalTotalCompact) {
+    modalTotalCompact.textContent = formatCfa(total || 0);
+  }
+}
+
+function setTicketStep(step, { focus = true } = {}) {
+  ticketState.activeStep = step;
+
+  document.querySelectorAll("[data-ticket-step]").forEach(section => {
+    const isActive = section.getAttribute("data-ticket-step") === step;
+    section.hidden = !isActive;
+    section.classList.toggle("is-active", isActive);
+    section.setAttribute("aria-hidden", String(!isActive));
+  });
+
+  document.querySelectorAll("[data-step-indicator]").forEach(indicator => {
+    const active = indicator.getAttribute("data-step-indicator") === step;
+    indicator.classList.toggle("is-active", active);
+    indicator.setAttribute("aria-current", active ? "step" : "false");
+  });
+
+  const modalTitle = document.getElementById("ticket-modal-title");
+  if (modalTitle) {
+    modalTitle.textContent = step === "details"
+      ? (currentLang === "fr" ? "Informations d'inscription" : "Registration details")
+      : (currentLang === "fr" ? "Choisissez votre ticket" : "Choose your ticket");
+  }
+
+  const backButton = document.getElementById("ticket-step-back");
+  const nextButton = document.getElementById("ticket-step-next");
+  if (backButton) {
+    backButton.textContent = step === "details"
+      ? (currentLang === "fr" ? "Retour" : "Back")
+      : (currentLang === "fr" ? "Fermer" : "Close");
+  }
+  if (nextButton) {
+    nextButton.type = step === "details" ? "submit" : "button";
+    nextButton.setAttribute("form", "ticket-form");
+    nextButton.textContent = step === "details"
+      ? (currentLang === "fr" ? "Continuer vers le paiement" : "Continue to payment")
+      : (currentLang === "fr" ? "Suivant" : "Next");
+  }
+
+  if (step === "selection") {
+    const firstCard = document.querySelector("[data-ticket-card]");
+    if (focus && firstCard) {
+      firstCard.focus();
+    }
+    return;
+  }
+
+  const firstInput = document.querySelector("#ticket-form input, #ticket-form textarea");
+  if (focus && firstInput) {
+    firstInput.focus();
+  }
 }
 
 function syncStudentProofField(ticket) {
@@ -785,9 +1154,10 @@ function openTicketModal() {
   if (form) setTicketFormSubmitting(form, false);
   modal.classList.add("open");
   modal.setAttribute("aria-hidden", "false");
+  modal.removeAttribute("inert");
   document.body.style.overflow = "hidden";
-  const firstInput = modal.querySelector("input, textarea");
-  if (firstInput) firstInput.focus();
+  setTicketStep(ticketState.activeStep || "selection");
+  setSummaryExpanded(false);
 }
 
 function closeTicketModal() {
@@ -795,6 +1165,7 @@ function closeTicketModal() {
   if (!modal) return;
   modal.classList.remove("open");
   modal.setAttribute("aria-hidden", "true");
+  modal.setAttribute("inert", "");
   document.body.style.overflow = "";
   const form = document.getElementById("ticket-form");
   if (form) setTicketFormSubmitting(form, false);
@@ -811,8 +1182,16 @@ function clearFieldErrors() {
   if (formError) formError.textContent = "";
 }
 
+function setSummaryExpanded(expanded) {
+  const toggle = document.querySelector("[data-summary-toggle]");
+  const content = document.querySelector("[data-summary-content]");
+  if (!toggle || !content) return;
+  toggle.setAttribute("aria-expanded", String(expanded));
+  content.classList.toggle("is-open", expanded);
+}
+
 function setTicketFormSubmitting(form, isSubmitting) {
-  const submitBtn = form.querySelector("button[type='submit']");
+  const submitBtn = form.querySelector("button[type='submit']") || document.getElementById("ticket-step-next");
   if (!submitBtn) return;
 
   if (isSubmitting) {
@@ -869,6 +1248,14 @@ function validateTicketForm(form) {
     }
   }
 
+  if (!ticket || ensureQuantity(ticket) <= 0) {
+    const formError = document.getElementById("ticket-form-error");
+    if (formError) {
+      formError.textContent = currentLang === "fr" ? "Veuillez choisir au moins 1 ticket." : "Please choose at least 1 ticket.";
+    }
+    valid = false;
+  }
+
   return valid;
 }
 
@@ -888,12 +1275,13 @@ function fileToBase64(file) {
 async function buildTicketSubmissionPayload(form, ticket) {
   const fullName = form.querySelector("#full-name").value.trim();
   const nameParts = fullName.split(/\s+/).filter(Boolean);
-  const firstName = nameParts.shift() || "";
-  const lastName = nameParts.join(" ");
+  const firstName = nameParts[0] || fullName;
+  const lastName = nameParts.length > 1 ? nameParts.slice(1).join(" ") : "";
   const studentFile = form.querySelector("#student-proof")?.files?.[0] || null;
   const quantity = ensureQuantity(ticket);
   const unitPrice = getTicketPrice(ticket);
   const consentCoc = form.querySelector("#consent-coc").checked;
+  const appliedVoucherCode = voucherState.code || null;
 
   const payload = {
     ticket: {
@@ -946,7 +1334,7 @@ async function submitTicketPurchase(payload) {
 
   const data = await response.json().catch(() => ({}));
   if (!response.ok) {
-    throw new Error(data.detail || data.message || "Unable to submit ticket data.");
+    throw new Error(data.detail || data.message || "Impossible de finaliser votre inscription. Vérifiez vos informations et votre connexion Internet, puis réessayez. Si le problème persiste, contactez notre équipe à contact@pytogo.org");
   }
 
   return data;
@@ -962,22 +1350,81 @@ function initTicketsPage() {
   }
 
   renderTicketList();
+  renderTicketPreview();
+  updateEarlyBirdCountdown();
   updateSummary();
+  const couponFeedback = getCouponFeedback();
+  if (couponFeedback && !couponFeedback.dataset.defaultText) {
+    couponFeedback.dataset.defaultText = couponFeedback.textContent || "";
+  }
+  renderVoucherFeedback();
 
-  const continueBtn = document.getElementById("continue-to-payment");
-  if (continueBtn) {
-    continueBtn.addEventListener("click", () => {
-      if (!ticketState.selectedTicketId) return;
-      openTicketModal();
+  const couponInput = getCouponInput();
+  const couponButton = document.querySelector(".coupon-row button");
+  if (couponButton) {
+    couponButton.addEventListener("click", applyVoucherFromInput);
+  }
+  if (couponInput) {
+    couponInput.addEventListener("input", () => {
+      if (voucherState.code && couponInput.value.trim() !== voucherState.code) {
+        clearVoucherState();
+        renderTicketList();
+        updateSummary();
+      }
+    });
+    couponInput.addEventListener("keydown", (event) => {
+      if (event.key === "Enter") {
+        event.preventDefault();
+        applyVoucherFromInput();
+      }
     });
   }
+
+  document.querySelectorAll("[data-open-ticket-modal]").forEach(btn => {
+    btn.addEventListener("click", () => {
+      ticketState.activeStep = "selection";
+      openTicketModal();
+    });
+  });
 
   document.querySelectorAll("[data-close-modal]").forEach(btn => {
     btn.addEventListener("click", closeTicketModal);
   });
 
+  document.querySelectorAll("[data-summary-toggle]").forEach(btn => {
+    btn.addEventListener("click", () => {
+      const expanded = btn.getAttribute("aria-expanded") === "true";
+      setSummaryExpanded(!expanded);
+    });
+  });
+
+  const backBtn = document.getElementById("ticket-step-back");
+  if (backBtn) {
+    backBtn.addEventListener("click", () => {
+      if (ticketState.activeStep === "details") {
+        setTicketStep("selection");
+        return;
+      }
+      closeTicketModal();
+    });
+  }
+
+  const nextBtn = document.getElementById("ticket-step-next");
+  if (nextBtn) {
+    nextBtn.addEventListener("click", () => {
+      if (!ticketState.selectedTicketId) return;
+      const ticket = getTicketById(ticketState.selectedTicketId);
+      if (!ticket || !isTicketSalesOpen(ticket) || maxSelectable(ticket) === 0 || ensureQuantity(ticket) <= 0) return;
+
+      if (ticketState.activeStep === "selection") {
+        clearFieldErrors();
+        setTicketStep("details");
+      }
+    });
+  }
+
   document.addEventListener("keydown", (event) => {
-    if (event.key === "Escape") closeTicketModal();
+    if (event.key === "Escape" && modal.classList.contains("open")) closeTicketModal();
   });
 
   const form = document.getElementById("ticket-form");
@@ -1007,7 +1454,7 @@ function initTicketsPage() {
         setTicketFormSubmitting(form, false);
         const formError = document.getElementById("ticket-form-error");
         if (formError) {
-          formError.textContent = error instanceof Error ? error.message : "Unable to submit ticket data.";
+          formError.textContent = error instanceof Error ? error.message : "Impossible de finaliser votre inscription. Vérifiez vos informations et votre connexion Internet, puis réessayez. Si le problème persiste, contactez notre équipe à contact@pytogo.org";
         }
       }
     });
@@ -1015,7 +1462,15 @@ function initTicketsPage() {
 
   document.addEventListener("pycontg:language-changed", () => {
     renderTicketList();
+    renderTicketPreview();
+    updateEarlyBirdCountdown();
     updateSummary(ticketState.selectedTicketId);
+    const couponFeedback = getCouponFeedback();
+    if (couponFeedback && !voucherState.code && !voucherState.message && !voucherState.loading) {
+      couponFeedback.dataset.defaultText = couponFeedback.textContent || couponFeedback.dataset.defaultText || "";
+    }
+    renderVoucherFeedback();
+    setTicketStep(ticketState.activeStep, { focus: false });
   });
 }
 
